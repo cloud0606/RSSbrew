@@ -22,7 +22,8 @@ class OriginalFeed(models.Model):
     #tag = models.CharField(max_length=255, blank=True, default='', help_text="Optional tag for the original feed")
     tags = models.ManyToManyField('Tag', related_name='original_feeds', blank=True, help_text="Tags associated with this feed")
     valid = models.BooleanField(default=None, blank=True, null=True, editable=False, help_text="Whether the feed is valid.")
-
+    last_modified = models.DateTimeField(default=None, blank=True, null=True, editable=False)
+    
     def save(self, *args, **kwargs):
         if not self.title:
             self.title = self.url
@@ -44,9 +45,9 @@ class ProcessedFeed(models.Model):
 
     # Summarization related fields
     articles_to_summarize_per_interval = models.PositiveIntegerField(default=0, help_text="All articles will be included in the feed, but only the set number of articles will be summarized per update, set to 0 to disable summarization.", verbose_name="Articles to summarize per update")
-    summary_language = models.CharField(max_length=20, default='English', help_text="Language for summarization, will be ignored if summarization is disabled or using custom prompt.")
+    summary_language = models.CharField(max_length=20, default='Chinese', help_text="Language for summarization, will be ignored if summarization is disabled or using custom prompt.")
     additional_prompt = models.TextField(blank=True, default='', verbose_name='Custom Prompt', help_text="This prompt will override the default prompt for summarization, you can use it for translation or other detailed instructions.")
-    translate_title = models.BooleanField(default=False, verbose_name="Article Title Translation", help_text="If this options is true, Article title is translated to summary language.")
+    translate_title = models.BooleanField(default=True, verbose_name="Article Title Translation", help_text="If this options is true, Article title is translated to summary language.")
     choices = [ 
         ('gpt-3.5-turbo', 'GPT-3.5 Turbo'),
         ('gpt-4-turbo', 'GPT-4 Turbo'),
@@ -86,6 +87,7 @@ class ProcessedFeed(models.Model):
 
     def save(self, *args, **kwargs):
         super().save(*args, **kwargs)
+        # todo 为什么save的时候要在调用一遍，会造成无限循环生成任务的问题。
         async_update_feeds_and_digest(self.name)
 
 @receiver(m2m_changed, sender=ProcessedFeed.feeds.through)
@@ -156,6 +158,7 @@ class Article(models.Model):
     content = models.TextField(blank=True, null=True)
     summary = models.TextField(blank=True, null=True)
     summary_one_line = models.TextField(blank=True, null=True)
+    tag = models.TextField(blank=True, null=True)
     summarized = models.BooleanField(default=False)
     custom_prompt = models.BooleanField(default=False)
     # URL should not be unique when different original feeds have the same article

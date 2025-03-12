@@ -35,7 +35,7 @@ class Migration(migrations.Migration):
                 ('name', models.CharField(max_length=255)),
                 ('update_frequency', models.PositiveIntegerField(default=30)),
                 ('max_articles_to_process_per_interval', models.PositiveIntegerField(default=5)),
-                ('summary_language', models.CharField(choices=[('en', 'English'), ('zh', 'Chinese'), ('es', 'Spanish'), ('fr', 'French'), ('de', 'German')], default='English', max_length=50)),
+                ('summary_language', models.CharField(choices=[('en', 'English'), ('zh', 'Chinese'), ('es', 'Spanish'), ('fr', 'French'), ('de', 'German')], default='Chinese', max_length=50)),
                 ('additional_prompt', models.TextField(blank=True)),
                 ('model', models.CharField(choices=[('gpt-3.5-turbo', 'GPT-3.5 Turbo'), ('gpt-4-turbo', 'GPT-4 Turbo'), ('gpt-4o', 'GPT-4o')], default='gpt-3.5-turbo', max_length=20)),
                 ('filter_relational_operator', models.CharField(choices=[('all', 'All'), ('any', 'Any'), ('none', 'None')], default='any', max_length=20)),

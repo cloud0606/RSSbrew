@@ -5,6 +5,7 @@ from urllib.parse import urlparse, urlunparse, parse_qs, urlencode
 import os
 from openai import OpenAI
 import tiktoken
+import time
 
 logger = logging.getLogger('feed_logger')
 OPENAI_PROXY = os.environ.get('OPENAI_PROXY')
@@ -175,7 +176,18 @@ def match_content(entry, filter):
         return len(content) > int(filter.value)
 
 
-def generate_summary(article, model, output_mode='HTML', prompt=None, other_model=''):
+def remove_think_part(response):
+    start_tag = "<think>"
+    end_tag = "</think>"
+    while start_tag in response and end_tag in response:
+        start_index = response.find(start_tag)
+        end_index = response.find(end_tag) + len(end_tag)
+        if start_index != -1 and end_index != -1:
+            response = response[:start_index] + response[end_index:]
+    return response
+
+
+def generate_summary(article, model, output_mode='json', prompt=None, other_model=''):
     if model == 'other':
         model = other_model
     if not model or not OPENAI_API_KEY:
@@ -186,34 +198,93 @@ def generate_summary(article, model, output_mode='HTML', prompt=None, other_mode
             "api_key": OPENAI_API_KEY,
             "base_url": OPENAI_BASE_URL
         }
+
         completion_params = {
             "model": model,
         }
+
+        # start_time = time.time()
+
+        # # DeepSeek 的处理逻辑
+        # logger.debug(f"                    [-] 使用deepseek-r1模型生成摘要")
+        # client = OpenAI(**client_params)
+        # truncated_query = clean_txt_and_truncate(article.content, model, clean_bool=True)
+        # messages_tt=[{
+        #     "role":"user",
+        #     "content": prompt + '  原文内容是 : ' + truncated_query
+        #     }]
+        # logger.debug(f"                    [-] prompt is 【{prompt[:100] + '  原文内容是 : ' + truncated_query[:100]}】 \n.... \n")
+        # completion = client.chat.completions.create(
+        #     model="deepseek-ai/deepseek-r1",
+        #     messages=messages_tt,
+        #     temperature=0.6,
+        #     top_p=0.7,
+        #     max_tokens=4096,
+        #     stream=True
+        #     )
+
+        # for chunk in completion:
+        #     if chunk.choices[0].delta.content is not None:
+        #         print(chunk.choices[0].delta.content, end="")
+            
+        # end_time = time.time()
+        # elapsed_time = end_time - start_time
+        # logger.info(f"                    [-] Deepseek摘要生成耗时: {elapsed_time:.2f}秒")
+        # return remove_think_part(completion.choices[0].message.content)
+
+
+        # OPENAI的处理逻辑
         if OPENAI_PROXY:
             client_params["http_client"] = httpx.Client(proxy=OPENAI_PROXY)
-
         client = OpenAI(**client_params)
+        # 自定义prompt 
+        #prompt = ''' '''
         if output_mode == 'json':
             truncated_query = clean_txt_and_truncate(article.content, model, clean_bool=True)
             #additional_prompt = f"Please summarize this article, and output the result only in JSON format. First item of the json is a one-line summary in 15 words named as 'summary_one_line', second item is the 150-word summary named as 'summary_long'. Output result in {language} language."
             messages = [
-                {"role": "system", "content": "You are a helpful assistant for processing articles, designed to output JSON format."},
-                {"role": "user", "content": f"content: {truncated_query}, title: {article.title}"},
-                {"role": "assistant", "content": f"{prompt}"},
+                {
+                    "role": "system", 
+                    "content": '''
+                            你是一个用于总结文章的有用助手，输出采用JSON格式，一定要输出纯文本的json格式，使用{做开头，}做结尾，不要有任何其他的用于标注代码块的符号。 eg:
+                            {
+                            "summary_one_line": "新型多态攻击伪装密码管理器作案",
+                            "summary_long": "3月6日，攻击者采用新型多态攻击方式，使用Chrome扩展滥用chrome.management API，冒充合法密码管理器（如1Password），伪造登录页面诱骗用户输入敏感信息。完成钓鱼操作后，恶意扩展恢复原状，致使攻击难以被察觉。研究人员建议谷歌尽快加强防护措施，目前尚无有效对策。",
+                            "title": "恶意Chrome扩展伪装密码管理器实施多态攻击窃取敏感信息",
+                            "tag": "网络攻击"
+                            }
+                            '''
+                },
+                {"role": "user", "content": f"<prompt> {prompt}</prompt> \n  <article> {truncated_query}</article> "},
+                # {"role": "assistant", "content": f"<prompt> {prompt}</prompt>"},
             ]
             completion_params["response_format"] = { "type": "json_object" }
             completion_params["messages"] = messages
         elif output_mode == 'HTML':
             truncated_query = clean_txt_and_truncate(article.content, model, clean_bool=False)
             messages = [
-                {"role": "system", "content": "You are a helpful assistant for processing article content, designed to output pure and clean HTML format, do not code block the output using triple backticks."},
-                {"role": "user", "content": f"{truncated_query}"},
-                {"role": "assistant", "content": f"{prompt}"},
+                {"role": "system", "content": "You are a helpful assistant for summarizing article content, designed to output pure and clean json format, do not code block the output using triple backticks."},
+                {"role": "user", "content": f"<article> {truncated_query}</article> \n <prompt> {prompt}</prompt>"},
+                # {"role": "assistant", "content": f"<prompt> {prompt}</prompt>"},
             ]
             completion_params["messages"] = messages
+        elif output_mode == 'md':
+            # 自定义摘要生成过程
+            truncated_query = clean_txt_and_truncate(article.content, model, clean_bool=False)
+            messages = [
+                {"role": "system", "content": "You are a helpful assistant for summarizing article content, designed to output pure and clean json format, do not code block the output using triple backticks."},
+                {"role": "user", "content": f"<article> {truncated_query}</article> \n <prompt> {prompt}</prompt>"},
+                # {"role": "assistant", "content": f"<prompt> {prompt}</prompt>"},
+            ]
+            completion_params["messages"] = messages
+
         completion = client.chat.completions.create(**completion_params)
-        logger.debug(f"prompt is {prompt}")
+        logger.debug(f"prompt is 【{prompt[:50]}】 \n.... \n")
+        logger.debug(f"content is 【{truncated_query}】 \n.... \n")
         return completion.choices[0].message.content
+        # OPENAI的处理逻辑 end
+        
+
     except Exception as e:
         logger.error(f'Failed to generate summary for article {article.title}: {str(e)}')
     
